@@ -1,0 +1,9 @@
+USE_OPENAI = False
+USE_OLLAMA = True
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+
+CHUNK_SIZE = 300
+CHUNK_OVERLAP = 50
+
+TOP_K = 2
+MODEL_NAME = "gpt-4o-mini"
