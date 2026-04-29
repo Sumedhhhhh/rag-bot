@@ -98,8 +98,7 @@ Open: http://127.0.0.1:8000/docs
 
 Steps:
 1. Add your `OPENAI_API_KEY` to `.env`
-2. Upload a document (PDF or JSON) via `/upload`
-3. Ask questions via `/ask`
+2. Either use `/infer` (single call) or `/upload` + `/ask` (stateful)
 
 > **macOS note:** If you see an OpenMP conflict error (`libomp.dylib already initialized`), add `KMP_DUPLICATE_LIB_OK=TRUE` to your `.env`. This is caused by `faiss-cpu` and `torch` each bundling their own OpenMP runtime.
 
@@ -107,9 +106,42 @@ Steps:
 
 ## 🧪 API Endpoints
 
+### One-shot Inference
+
+`POST /infer`
+
+Upload a document and a questions file together in a single call. Returns answers immediately — no prior indexing needed.
+
+| Field | Type | Description |
+|---|---|---|
+| `document` | file | PDF or JSON document to query |
+| `questions` | file | JSON file with a `"questions"` array |
+
+Questions file format:
+```json
+{
+  "questions": [
+    "What is the SLA?",
+    "Which cloud providers are used?"
+  ]
+}
+```
+
+Response:
+```json
+{
+  "What is the SLA?": "Clients are notified of security incidents within 72 hours per the defined SLA.",
+  "Which cloud providers are used?": "Amazon Web Services (AWS), GitHub, and Microsoft Office 365."
+}
+```
+
+---
+
 ### Upload Document
 
 `POST /upload`
+
+Upload and index a document. Use this when you want to ask multiple question sets against the same document without re-uploading.
 
 Supports:
 - PDF files — semantically chunked at topic boundaries
@@ -120,6 +152,8 @@ Supports:
 ### Ask Questions
 
 `POST /ask`
+
+Query the previously indexed document. Requires a prior `/upload` call.
 
 Request:
 ```json
@@ -167,6 +201,9 @@ All tunables live in `app/config.py`:
 
 - **Embedding model cached at startup**
   The embedding model is loaded once and reused across all requests via a singleton pattern, avoiding repeated initialization overhead on every `/upload` and `/ask` call.
+
+- **Two usage modes**
+  `/infer` is stateless — takes both files in one call, ideal for the assignment spec. `/upload` + `/ask` is stateful — index once, query many times, ideal for production use.
 
 - **Separation of ingestion and query layers**
   Documents are processed at upload time and the FAISS index is persisted to disk. Subsequent `/ask` calls load the index without re-embedding, making queries fast.

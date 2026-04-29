@@ -1,5 +1,6 @@
 from openai import OpenAI
 from app.config import OPENAI_API_KEY, MODEL_NAME
+from app.utils.logger import logger
 
 _client = None
 
@@ -45,6 +46,7 @@ def generate_answer_openai(question: str, docs) -> str:
 
     user_prompt = f"Context:\n{context}\n\nQuestion:\n{question}"
 
+    logger.info(f"Sending question to OpenAI ({MODEL_NAME}): '{question}'")
     response = _get_client().chat.completions.create(
         model=MODEL_NAME,
         messages=[
@@ -53,4 +55,6 @@ def generate_answer_openai(question: str, docs) -> str:
         ],
     )
 
-    return "[OPENAI] " + response.choices[0].message.content.strip()
+    answer = response.choices[0].message.content.strip()
+    logger.info(f"Received response from OpenAI | tokens used: {response.usage.total_tokens}")
+    return "[OPENAI] " + answer

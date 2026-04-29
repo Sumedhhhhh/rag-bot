@@ -30,8 +30,9 @@ def ask_questions(request : QuestionRequest) :
 
     answers = {}
 
-    for q in request.questions:
-        logger.info(f"Processing question : {q}")
+    total = len(request.questions)
+    for i, q in enumerate(request.questions, 1):
+        logger.info(f"[{i}/{total}] Processing: '{q}'")
         docs = retrieve(vector_store, q)
         logger.debug(f"Question: {q} | chunks: {[d.page_content for d in docs]}")
 

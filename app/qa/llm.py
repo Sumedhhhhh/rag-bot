@@ -1,6 +1,7 @@
 import requests
+from app.utils.logger import logger
 
-def generate_answer_ollama(question, docs) :
+def generate_answer_ollama(question, docs):
     context = "\n\n".join([doc.page_content for doc in docs])
 
     prompt = f"""
@@ -26,6 +27,7 @@ def generate_answer_ollama(question, docs) :
         Answer:
         """
     
+    logger.info(f"Sending question to Ollama (mistral): '{question}'")
     response = requests.post(
         "http://localhost:11434/api/generate",
         json={
@@ -35,5 +37,7 @@ def generate_answer_ollama(question, docs) :
         }
     )
 
-    return "[MISTRAL]" + response.json()["response"]
+    answer = response.json()["response"]
+    logger.info("Received response from Ollama")
+    return "[MISTRAL]" + answer
 
