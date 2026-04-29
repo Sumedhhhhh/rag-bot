@@ -6,7 +6,8 @@ from app.retrieval.retriever import retrieve
 from app.ingestion.json_loader import load_questions
 from app.qa.mock_llm import generate_answer
 from app.qa.llm import generate_answer_ollama
-from app.config import USE_OLLAMA
+from app.qa.openai import generate_answer_openai
+from app.config import USE_OLLAMA, USE_OPENAI
 from app.utils.logger import logger
 
 
@@ -26,9 +27,11 @@ def run_pipeline(pdf_path, question_path) :
 
     for q in questions :
         retrieved_docs = retrieve(vector_store,q)
-        if USE_OLLAMA :
+        if USE_OPENAI:
+            answer = generate_answer_openai(q, retrieved_docs)
+        elif USE_OLLAMA:
             answer = generate_answer_ollama(q, retrieved_docs)
-        else :
+        else:
             answer = generate_answer(q, retrieved_docs)
 
         answers[q] = answer

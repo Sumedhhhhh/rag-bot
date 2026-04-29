@@ -6,9 +6,10 @@ This project implements a Retrieval-Augmented Generation (RAG) system that answe
 
 The system supports:
 - PDF and JSON document ingestion
-- JSON-based question input
-- Semantic retrieval using vector embeddings (FAISS)
-- Answer generation using a local LLM (Ollama - Mistral) or a mock fallback
+- Semantic chunking for PDFs (splits at topic boundaries, not character limits)
+- JSON documents skip chunking — each key-value pair is already an atomic fact
+- OpenAI embeddings (`text-embedding-3-small`) or local HuggingFace embeddings
+- Answer generation using OpenAI (`gpt-4o-mini`), Ollama (Mistral), or a mock fallback
 
 ---
 
@@ -16,33 +17,58 @@ The system supports:
 
 1. Document ingestion:
    - Supports PDF and JSON formats
-   - JSON documents are flattened into text for semantic processing
+   - JSON documents are recursively flattened into `"key path: value"` documents
 
 2. Preprocessing:
-   - Documents are split into overlapping chunks
-   - Embeddings are generated using a local model
+   - PDFs are split using `SemanticChunker` — finds topic boundaries using embedding similarity
+   - JSON documents skip splitting entirely — already atomic after flattening
 
-3. Storage:
-   - Chunks are stored in a FAISS vector database
+3. Embedding:
+   - Chunks are embedded using OpenAI `text-embedding-3-small` (or local `all-MiniLM-L6-v2`)
+   - Embedding model is loaded once at startup and cached for all requests
 
-4. Query pipeline:
-   - Retrieve top-k relevant chunks
+4. Storage:
+   - Chunks are stored in a FAISS vector database, persisted to disk
+
+5. Query pipeline:
+   - Retrieve top-k relevant chunks via cosine similarity
    - Generate answers using:
-     - Local LLM (Ollama - Mistral), or
+     - OpenAI `gpt-4o-mini` (primary), or
+     - Local LLM via Ollama (Mistral), or
      - Mock LLM (for lightweight testing)
 
 ---
 
-## 🤖 Local LLM (Ollama)
+## 🤖 LLM Options
 
-This project uses Ollama to run a local LLM (Mistral) for answer generation.
+### OpenAI (default)
 
-### Setup
+Add your key to `.env`:
+
+```
+OPENAI_API_KEY=sk-...
+```
+
+Set in `app/config.py`:
+
+```python
+USE_OPENAI = True
+USE_OLLAMA = False
+```
+
+### Local LLM via Ollama (fallback)
 
 ```bash
 brew install ollama
 ollama serve
 ollama pull mistral
+```
+
+Set in `app/config.py`:
+
+```python
+USE_OPENAI = False
+USE_OLLAMA = True
 ```
 
 The system communicates with Ollama via a local API (`http://localhost:11434`).
@@ -53,10 +79,11 @@ The system communicates with Ollama via a local API (`http://localhost:11434`).
 
 - Python
 - FastAPI
-- LangChain
+- LangChain (`langchain`, `langchain-openai`, `langchain-experimental`)
 - FAISS (Vector Database)
-- Sentence Transformers (local embeddings)
-- Ollama (Mistral - local LLM)
+- OpenAI `text-embedding-3-small` (embeddings) + `gpt-4o-mini` (LLM)
+- Sentence Transformers (local embeddings fallback)
+- Ollama / Mistral (local LLM fallback)
 
 ---
 
@@ -70,8 +97,11 @@ uvicorn app.main:app --reload
 Open: http://127.0.0.1:8000/docs
 
 Steps:
-1. Upload a document (PDF or JSON)
-2. Ask questions via `/ask`
+1. Add your `OPENAI_API_KEY` to `.env`
+2. Upload a document (PDF or JSON) via `/upload`
+3. Ask questions via `/ask`
+
+> **macOS note:** If you see an OpenMP conflict error (`libomp.dylib already initialized`), add `KMP_DUPLICATE_LIB_OK=TRUE` to your `.env`. This is caused by `faiss-cpu` and `torch` each bundling their own OpenMP runtime.
 
 ---
 
@@ -82,8 +112,8 @@ Steps:
 `POST /upload`
 
 Supports:
-- PDF files
-- JSON files
+- PDF files — semantically chunked at topic boundaries
+- JSON files — flattened into key-value documents, no chunking needed
 
 ---
 
@@ -111,36 +141,52 @@ Response:
 
 ---
 
+## ⚙️ Configuration
+
+All tunables live in `app/config.py`:
+
+| Setting | Default | Description |
+|---|---|---|
+| `USE_OPENAI` | `True` | Use OpenAI for embeddings + answer generation |
+| `USE_OLLAMA` | `False` | Use local Ollama (Mistral) for answer generation |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model name |
+| `MODEL_NAME` | `gpt-4o-mini` | OpenAI model for answer generation |
+| `CHUNK_SIZE` | `600` | Max characters per chunk (fixed splitter fallback) |
+| `CHUNK_OVERLAP` | `50` | Character overlap between consecutive chunks |
+| `TOP_K` | `4` | Number of chunks retrieved per question |
+
+---
+
 ## 💡 Design Decisions
 
-- **Separation of ingestion and query layers**  
-  Avoids reprocessing documents for every request and improves efficiency.
+- **Semantic chunking for PDFs**
+  Uses `SemanticChunker` which embeds each sentence and splits where the topic meaningfully changes (top 5th percentile cosine distance jumps). Keeps related sentences together unlike fixed-size chunking.
 
-- **Support for multiple input formats (PDF & JSON)**  
-  JSON inputs are normalized into a unified document format.
+- **JSON skips the splitter**
+  Each flattened entry (`"company ceo name: Alice"`) is already a self-contained fact. Splitting it would break the key-value format and lose context.
 
-- **Embedding model cached at startup**  
-  The HuggingFace embedding model is loaded once and reused across all requests, avoiding repeated PyTorch initialization overhead on every `/upload` and `/ask` call.
+- **Embedding model cached at startup**
+  The embedding model is loaded once and reused across all requests via a singleton pattern, avoiding repeated initialization overhead on every `/upload` and `/ask` call.
 
-- **Use of local embeddings during development**  
-  Reduces dependency on external APIs and lowers cost.
+- **Separation of ingestion and query layers**
+  Documents are processed at upload time and the FAISS index is persisted to disk. Subsequent `/ask` calls load the index without re-embedding, making queries fast.
 
-- **Local LLM integration via Ollama**  
-  Enables fully offline inference and avoids API quota limitations.
+- **LLM priority chain**
+  `USE_OPENAI` takes precedence over `USE_OLLAMA`, which takes precedence over the mock. Only one should be `True` at a time.
 
-- **Strict prompt design**  
-  Ensures answers are grounded in retrieved context and reduces hallucination.
+- **Strict prompt design**
+  The LLM is instructed to use only retrieved chunks, include specific technical terms (e.g. TLS, AES-256, MFA), avoid vague phrases, and respond with "Not found" if the answer is absent — reducing hallucination.
 
 ---
 
 ## ⚠️ Limitations
 
-- Local LLM (Mistral) may produce less accurate answers compared to larger cloud models
-- Performance depends on retrieval quality and chunking strategy
+- Retrieval quality depends on chunk size and embedding model — very long or poorly structured documents may produce incomplete answers
+- FAISS stores a single index; uploading a new document overwrites the previous one
 - System is optimized for small-to-medium sized documents
 
 ---
 
 ## 📌 Note
 
-The system supports both local (Ollama) and mock LLMs, allowing development and testing without reliance on external APIs.
+The system supports OpenAI, Ollama, and a mock LLM — switchable via `app/config.py` — allowing development and testing at any cost level without changing application code.

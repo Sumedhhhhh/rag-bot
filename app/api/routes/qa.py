@@ -6,7 +6,8 @@ from app.vectorstore.store import load_vectorstore
 from app.retrieval.retriever import retrieve
 from app.qa.mock_llm import generate_answer
 from app.qa.llm import generate_answer_ollama
-from app.config import USE_OLLAMA
+from app.qa.openai import generate_answer_openai
+from app.config import USE_OLLAMA, USE_OPENAI
 from app.utils.logger import logger
 
 router = APIRouter()
@@ -34,7 +35,9 @@ def ask_questions(request : QuestionRequest) :
         docs = retrieve(vector_store, q)
         logger.debug(f"Question: {q} | chunks: {[d.page_content for d in docs]}")
 
-        if USE_OLLAMA:
+        if USE_OPENAI:
+            answer = generate_answer_openai(q, docs)
+        elif USE_OLLAMA:
             answer = generate_answer_ollama(q, docs)
         else:
             answer = generate_answer(q, docs)
