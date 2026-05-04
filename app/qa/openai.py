@@ -14,15 +14,6 @@ def _get_client():
 def generate_answer_openai(question: str, docs) -> str:
     context = "\n\n".join([doc.page_content for doc in docs])
 
-    # system_prompt = (
-    #     "You are a precise document question-answering system. "
-    #     "Answer using ONLY the information in the provided context. "
-    #     "Do NOT use prior knowledge or make assumptions. "
-    #     "If the answer is not in the context, respond exactly with: Not found. "
-    #     "Do NOT mention the word 'context' in your answer. "
-    #     "Keep the answer concise and factual."
-    # )
-
     system_prompt = (
     "You are a compliance-focused document question-answering system.\n\n"
 

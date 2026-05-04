@@ -112,10 +112,10 @@ Steps:
 
 Upload a document and a questions file together in a single call. Returns answers immediately — no prior indexing needed.
 
-| Field | Type | Description |
-|---|---|---|
-| `document` | file | PDF or JSON document to query |
-| `questions` | file | JSON file with a `"questions"` array |
+|   Field     |  Type |    Description |
+|-------------|-------|-----------------------------|
+| `document`  | file  | PDF or JSON document to query |
+| `questions` | file  | JSON file with a `"questions"` array |
 
 Questions file format:
 ```json
